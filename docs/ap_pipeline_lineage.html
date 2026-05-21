@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>AP Invoices Pipeline Lineage</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; margin: 0; padding: 40px; }
+    h1 { text-align: center; margin-bottom: 30px; }
+    .mermaid { display: flex; justify-content: center; }
+    .legend { margin-top: 30px; text-align: center; font-size: 14px; color: #aaa; }
+    .legend span { margin: 0 15px; }
+  </style>
+</head>
+<body>
+  <h1>AP Invoices Pipeline Lineage</h1>
+  <div class="mermaid">
+    graph LR
+      %% Bronze Sources
+      SAP[("BRONZE_SAP_AP_INVOICES<br/><i>SAP ERP</i>")]:::bronze
+      ORA[("BRONZE_ORACLE_AP_INVOICES<br/><i>Oracle ERP</i>")]:::bronze
+      BAAN[("BRONZE_BAAN_AP_INVOICES<br/><i>Baan IV</i>")]:::bronze
+      WD[("BRONZE_WORKDAY_AP_INVOICES<br/><i>Workday</i>")]:::bronze
+
+      %% Silver Dynamic Table
+      SILVER[["SILVER_AP_INVOICES<br/><i>Dynamic Table</i><br/>4 sources · 50 rows"]]:::silver
+
+      %% Semantic View
+      SV{{"SV_AP_ANALYTICS<br/><i>Semantic View</i><br/>7 metrics · 7 VQRs"}}:::semantic
+
+      %% Cortex Agent
+      AGENT(["AP_ANALYTICS_ASSISTANT<br/><i>Cortex Agent</i><br/>uses Cortex Analyst NL-to-SQL"]):::agent
+
+      %% Consumers
+      USERS["Finance / AP Teams<br/><i>Natural language queries</i>"]:::consumer
+      SIGMA["Sigma Dashboard<br/><i>(planned)</i>"]:::consumer
+      EVAL[("AGENT_EVAL_SET<br/><i>15 test questions</i>")]:::eval
+
+      %% Edges
+      SAP --> SILVER
+      ORA --> SILVER
+      BAAN --> SILVER
+      WD --> SILVER
+      SILVER --> SV
+      SILVER --> SIGMA
+      SV --> AGENT
+      AGENT --> USERS
+      EVAL -.->|evaluates| AGENT
+
+      %% Styles
+      classDef bronze fill:#e67e22,stroke:#d35400,color:#fff
+      classDef silver fill:#3498db,stroke:#2980b9,color:#fff
+      classDef semantic fill:#9b59b6,stroke:#8e44ad,color:#fff
+      classDef agent fill:#2ecc71,stroke:#27ae60,color:#fff
+      classDef consumer fill:#34495e,stroke:#2c3e50,color:#fff
+      classDef eval fill:#f39c12,stroke:#e67e22,color:#fff
+  </div>
+  <div class="legend">
+    <span>🟠 Bronze (Source Tables)</span>
+    <span>🔵 Silver (Dynamic Table)</span>
+    <span>🟣 Semantic View</span>
+    <span>🟢 Cortex Agent</span>
+    <span>⚫ Consumers</span>
+  </div>
+</body>
+</html>
