@@ -1,0 +1,222 @@
+name: sv_ap_analytics
+tables:
+  - name: silver_ap_invoices
+    description: "Unified accounts payable invoices from SAP, Oracle, Baan, and Workday. One row per invoice. Amounts are in original transaction currency (no FX conversion)."
+    base_table:
+      database: COCO_WORKSHOP
+      schema: PIPELINE_LAB
+      table: SILVER_AP_INVOICES
+    primary_key:
+      columns:
+        - INVOICE_ID
+        - SOURCE_SYSTEM
+    dimensions:
+      - name: invoice_id
+        synonyms: ["invoice key", "invoice identifier"]
+        description: "Unique invoice ID from source ERP system."
+        data_type: TEXT
+        expr: INVOICE_ID
+        sample_values: ["SAP-001", "ORA-003", "BAN-002", "WD-005"]
+      - name: invoice_number
+        synonyms: ["invoice num", "invoice ref", "invoice reference"]
+        description: "Business-facing invoice reference number used by vendors and AP clerks."
+        data_type: TEXT
+        expr: INVOICE_NUMBER
+        sample_values: ["INV-2025-0001", "ORA-INV-50001", "BN-2025-1001", "WD-AP-90001"]
+      - name: vendor_id
+        synonyms: ["supplier id", "supplier code"]
+        description: "Source-system vendor/supplier code. Not unified across systems."
+        data_type: TEXT
+        expr: VENDOR_ID
+      - name: vendor_name
+        synonyms: ["supplier", "supplier name", "vendor"]
+        description: "Vendor display name. Use for grouping spend analysis."
+        data_type: TEXT
+        expr: VENDOR_NAME
+        sample_values: ["Acme Industrial Supply", "Global Parts GmbH", "TechServ Solutions", "CloudScale Analytics", "Nordic Metals AB"]
+      - name: currency_code
+        synonyms: ["currency", "ccy"]
+        description: "ISO 4217 currency code. Do NOT sum amounts across different currencies without conversion."
+        data_type: TEXT
+        expr: CURRENCY_CODE
+        sample_values: ["USD", "EUR", "GBP"]
+      - name: payment_terms
+        synonyms: ["pay terms", "terms"]
+        description: "Payment terms from source system. Format varies: SAP/Oracle use NET30, Baan uses N30, Workday uses Net 30."
+        data_type: TEXT
+        expr: PAYMENT_TERMS
+        sample_values: ["NET30", "NET60", "N30", "N60", "Net 30", "Net 60"]
+      - name: po_number
+        synonyms: ["purchase order", "PO"]
+        description: "Purchase order reference. Nullable for ~15% of service invoices."
+        data_type: TEXT
+        expr: PO_NUMBER
+        sample_values: ["PO-4500001", "OP-7100002", "BP-8003", "WPO-6001"]
+      - name: line_description
+        synonyms: ["description", "memo", "invoice description"]
+        description: "Free-text description of the invoice line item."
+        data_type: TEXT
+        expr: LINE_DESCRIPTION
+      - name: gl_account
+        synonyms: ["GL code", "general ledger", "account code"]
+        description: "General ledger account code in source-system format. Not cross-mapped across systems."
+        data_type: TEXT
+        expr: GL_ACCOUNT
+        sample_values: ["5100-10", "A5100-40", "GL-510", "LA-6200"]
+      - name: cost_center
+        synonyms: ["department", "business unit", "dept", "cost centre"]
+        description: "Organizational cost center responsible for the expense. Closest proxy for business unit."
+        data_type: TEXT
+        expr: COST_CENTER
+        sample_values: ["CC-ENG-01", "D-MFG", "BC-LOG", "WCC-TECH"]
+      - name: approval_status
+        synonyms: ["status", "workflow status"]
+        description: "Normalized workflow status: APPROVED, PENDING, or OTHER."
+        data_type: TEXT
+        expr: APPROVAL_STATUS
+        sample_values: ["APPROVED", "PENDING"]
+      - name: source_system
+        synonyms: ["ERP", "system", "source"]
+        description: "ERP system of origin: SAP, ORACLE, BAAN, or WORKDAY."
+        data_type: TEXT
+        expr: SOURCE_SYSTEM
+        sample_values: ["SAP", "ORACLE", "BAAN", "WORKDAY"]
+    time_dimensions:
+      - name: invoice_date
+        synonyms: ["invoice dt", "posted date", "date"]
+        description: "Date the invoice was issued/posted. Primary time dimension for trending."
+        data_type: DATE
+        expr: INVOICE_DATE
+      - name: due_date
+        synonyms: ["payment due date", "pay by date"]
+        description: "Payment due date. Compare to CURRENT_DATE for overdue analysis."
+        data_type: DATE
+        expr: DUE_DATE
+    facts:
+      - name: invoice_amount
+        synonyms: ["amount", "spend", "invoice value", "invoice total"]
+        description: "Invoice monetary amount in original transaction currency. Always positive; credit memos are separate negative records."
+        data_type: NUMBER
+        expr: INVOICE_AMOUNT
+        default_aggregation: sum
+    filters:
+      - name: approved_only
+        synonyms: ["approved invoices"]
+        description: "Filter to only approved invoices."
+        expr: APPROVAL_STATUS = 'APPROVED'
+      - name: pending_only
+        synonyms: ["pending invoices", "awaiting approval"]
+        description: "Filter to only pending invoices."
+        expr: APPROVAL_STATUS = 'PENDING'
+      - name: overdue
+        synonyms: ["past due", "overdue invoices", "late"]
+        description: "Filter to invoices where the due date has passed. Note: all sample data has dates in 2025, so all invoices will appear overdue if queried in 2026+."
+        expr: DUE_DATE < CURRENT_DATE()
+      - name: last_12_months
+        synonyms: ["recent", "last year", "trailing 12 months", "LTM"]
+        description: "Filter to invoices posted within the last 12 months from today."
+        expr: INVOICE_DATE >= DATEADD('month', -12, CURRENT_DATE())
+    metrics:
+      - name: total_spend
+        synonyms: ["total AP spend", "total invoice amount", "total amount"]
+        description: "Sum of all invoice amounts (in mixed currencies — interpret with caution)."
+        expr: SUM(INVOICE_AMOUNT)
+      - name: invoice_count
+        synonyms: ["number of invoices", "invoice volume", "count of invoices"]
+        description: "Total number of invoices."
+        expr: COUNT(*)
+      - name: avg_invoice_amount
+        synonyms: ["average invoice", "mean invoice amount"]
+        description: "Average invoice amount across all currencies."
+        expr: AVG(INVOICE_AMOUNT)
+      - name: overdue_invoice_count
+        synonyms: ["overdue count", "past due count"]
+        description: "Number of invoices past their due date."
+        expr: COUNT_IF(DUE_DATE < CURRENT_DATE())
+      - name: approved_invoice_count
+        synonyms: ["approved count"]
+        description: "Number of invoices with APPROVED status."
+        expr: COUNT_IF(APPROVAL_STATUS = 'APPROVED')
+      - name: pending_invoice_amount
+        synonyms: ["unpaid amount", "pending spend", "outstanding amount"]
+        description: "Total amount of invoices still pending approval. Mixed currencies."
+        expr: SUM(CASE WHEN APPROVAL_STATUS = 'PENDING' THEN INVOICE_AMOUNT ELSE 0 END)
+      - name: vendor_count
+        synonyms: ["number of vendors", "supplier count", "unique vendors"]
+        description: "Count of distinct vendors."
+        expr: COUNT(DISTINCT VENDOR_NAME)
+verified_queries:
+  - name: total_spend_by_vendor
+    question: "What is the total AP spend by vendor?"
+    sql: |
+      SELECT
+        VENDOR_NAME,
+        SUM(INVOICE_AMOUNT) AS TOTAL_SPEND
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      GROUP BY VENDOR_NAME
+      ORDER BY TOTAL_SPEND DESC
+  - name: invoice_count_by_month_and_cost_center
+    question: "How many invoices per month by business unit?"
+    sql: |
+      SELECT
+        DATE_TRUNC('MONTH', INVOICE_DATE) AS INVOICE_MONTH,
+        COST_CENTER,
+        COUNT(*) AS INVOICE_COUNT
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      GROUP BY INVOICE_MONTH, COST_CENTER
+      ORDER BY INVOICE_MONTH, COST_CENTER
+  - name: top_10_vendors_by_unpaid
+    question: "Top 10 vendors by unpaid invoice amount"
+    sql: |
+      SELECT
+        VENDOR_NAME,
+        SUM(INVOICE_AMOUNT) AS UNPAID_AMOUNT
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      WHERE APPROVAL_STATUS = 'PENDING'
+      GROUP BY VENDOR_NAME
+      ORDER BY UNPAID_AMOUNT DESC
+      LIMIT 10
+  - name: spend_by_source_system
+    question: "What is the total spend by source system?"
+    sql: |
+      SELECT
+        SOURCE_SYSTEM,
+        SUM(INVOICE_AMOUNT) AS TOTAL_SPEND,
+        COUNT(*) AS INVOICE_COUNT
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      GROUP BY SOURCE_SYSTEM
+      ORDER BY TOTAL_SPEND DESC
+  - name: overdue_invoices
+    question: "Show me overdue invoices"
+    sql: |
+      SELECT
+        INVOICE_NUMBER,
+        VENDOR_NAME,
+        INVOICE_AMOUNT,
+        CURRENCY_CODE,
+        DUE_DATE,
+        SOURCE_SYSTEM
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      WHERE DUE_DATE < CURRENT_DATE()
+      ORDER BY DUE_DATE ASC
+  - name: spend_last_12_months_by_vendor
+    question: "Total AP spend by vendor over the last 12 months"
+    sql: |
+      SELECT
+        VENDOR_NAME,
+        SUM(INVOICE_AMOUNT) AS TOTAL_SPEND,
+        CURRENCY_CODE
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      WHERE INVOICE_DATE >= DATEADD('month', -12, CURRENT_DATE())
+      GROUP BY VENDOR_NAME, CURRENCY_CODE
+      ORDER BY TOTAL_SPEND DESC
+  - name: spend_by_currency
+    question: "What is the total spend by currency?"
+    sql: |
+      SELECT
+        CURRENCY_CODE,
+        SUM(INVOICE_AMOUNT) AS TOTAL_SPEND,
+        COUNT(*) AS INVOICE_COUNT
+      FROM COCO_WORKSHOP.PIPELINE_LAB.SILVER_AP_INVOICES
+      GROUP BY CURRENCY_CODE
+      ORDER BY TOTAL_SPEND DESC
